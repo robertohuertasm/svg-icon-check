@@ -12,6 +12,7 @@ struct Cli {
     /// Path to the input SVG file
     input: PathBuf,
     /// Path to the output PNG file
+    #[arg(short, long, default_value = "output.png")]
     output: PathBuf,
 }
 
