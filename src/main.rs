@@ -14,6 +14,9 @@ struct Cli {
     /// Path to the output PNG file
     #[arg(short, long, default_value = "output.png")]
     output: PathBuf,
+    /// Width of the output icon
+    #[arg(short = 'w', long, default_value = "200")]
+    icon_width: u32,
 }
 
 fn main() -> Result<()> {
@@ -24,27 +27,16 @@ fn main() -> Result<()> {
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_data(&svg_data, &opt)?;
 
-    // Define target size
-    // TODO: (ROB) make this a CLI argument
-    let target_width = 400;
-    let target_height = 400;
-
     // Calculate scaling factors
-    let scale_x = target_width as f32 / tree.size().width();
-    let scale_y = target_height as f32 / tree.size().height();
+    let icon_width = cli.icon_width;
+    let scale_x = icon_width as f32 / tree.size().width();
+    let scale_y = icon_width as f32 / tree.size().height();
     // Use the smaller scale to fit the entire SVG
     let scale = scale_x.min(scale_y);
 
     // Create Pixmap with target size
-    let mut pixmap = Pixmap::new(target_width, target_height)
+    let mut pixmap = Pixmap::new(icon_width, icon_width)
         .ok_or_else(|| anyhow::anyhow!("Couldn't create the Pixmap"))?;
-
-    // Create a transform that scales and centers the SVG
-    // let transform = Transform::from_scale(scale, scale)
-    //     .post_scale(
-    //         (target_width as f32 - tree.size().width() * scale) / 2.0,
-    //         (target_height as f32 - tree.size().height() * scale) / 2.0,
-    //     );
 
     let transform = Transform::from_scale(scale, scale);
 
@@ -52,18 +44,22 @@ fn main() -> Result<()> {
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 
     // Create image (dark + light)
-    let mut combined = ImageBuffer::<Rgb<u8>, _>::new(target_width * 2, target_height);
+    let mut combined = ImageBuffer::<Rgb<u8>, _>::new(icon_width * 3, icon_width);
 
     let white_background = PremultipliedColorU8::from_rgba(255, 255, 255, 255);
+    let beige_background = PremultipliedColorU8::from_rgba(245, 245, 220, 255);
 
-    for y in 0..target_height {
-        for x in 0..target_width {
+    for y in 0..icon_width {
+        for x in 0..icon_width {
             if let Some(pixel) = pixmap.pixel(x, y) {
                 // dark background (original)
                 combined.put_pixel(x, y, blend(pixel, None));
 
                 // white background
-                combined.put_pixel(x + target_width, y, blend(pixel, white_background));
+                combined.put_pixel(x + icon_width, y, blend(pixel, white_background));
+
+                // beige background
+                combined.put_pixel(x + icon_width * 2, y, blend(pixel, beige_background));
             }
         }
     }
