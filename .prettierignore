@@ -2,6 +2,7 @@
 .git*
 .*ignore
 .*rc
+.md
 fixtures/
 !.prettierrc
 !.github/
