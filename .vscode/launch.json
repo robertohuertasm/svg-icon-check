@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/svg-icon-check",
+      "args": [
+        // "./fixtures/icons/default_file.svg",
+        // "./fixtures/icons/default_folder.svg",
+        // "./fixtures/changed_files.txt",
+        // "-b",
+        // "253,246,227"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build: debug"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "davidanson.vscode-markdownlint",
+    "editorConfig.editorConfig",
+    "esbenp.prettier-vscode",
+    "nifty.nifty-rust",
+    "nifty.nifty-toml",
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb"
+  ]
+}
