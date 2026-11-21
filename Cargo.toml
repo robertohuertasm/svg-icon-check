@@ -1,12 +1,25 @@
 [package]
 name = "svg-icon-check"
+description = "Small utility to check how an SVG icon looks like on different backgrounds"
 version = "0.1.0"
+license = "MIT"
 edition = "2021"
+authors = [
+  "Roberto Huertas <roberto.huertas@outlook.com>",
+  "Dimitris \"Jimi\" Charalampidis <jimikar@gmail.com>",
+]
 
 [dependencies]
-clap = { version = "4.0", features = ["derive"] }
-resvg = "0.44.0"
-usvg = "0.44.0"
-tiny-skia = "0.11.4"  
-image = "0.25.0"
 anyhow = "1.0"
+clap = { version = "4.0", features = ["derive", "cargo"] }
+icu_casemap = "2.4.0"
+icu_normalizer = "2.4.0"
+image = "0.25.0"
+resvg = "0.50.0"
+tempfile = "3.27.0"
+tiny-skia = "0.12.0"
+usvg = "0.50.0"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
