@@ -6,8 +6,6 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::{crate_authors, value_parser, Parser};
-use icu_casemap::CaseMapper;
-use icu_normalizer::DecomposingNormalizer;
 use image::{ImageBuffer, Rgb};
 use resvg::{self, usvg};
 use tiny_skia::{ColorU8, Pixmap, PremultipliedColorU8};
@@ -26,7 +24,7 @@ const ALPHA_OPAQUE: u8 = 255;
         "Authors:\n  {author}\n\n",
         "Usage:\n  {usage}\n\n",
         "Arguments:\n{positionals}\n\n",
-        "{options}"
+        "Options:\n{options}"
     )
 )]
 struct Cli {
@@ -46,10 +44,13 @@ struct Cli {
         short = 'w',
         long = "icon-width",
         default_value = "200",
-        value_parser = value_parser!(u32).range(1..=200),
-        help = "Width of the output icon"
+        value_parser = value_parser!(u32).range(1..=256),
+        help = "Width of each icon section in pixels (1-256)"
     )]
     icon_width: u32,
+    // TECH DEBT: Investigate adding `value_parser = parse_rgb` returning ColorU8
+    // and declaring num_args = 1..16
+    // https://github.com/robertohuertasm/svg-icon-check/pull/3#discussion_r4659304488
     #[arg(
         short = 'b',
         long = "backgrounds",
@@ -60,26 +61,26 @@ struct Cli {
     backgrounds: Vec<String>,
 }
 
+struct PreviewJob {
+    svg: PathBuf,
+    png_name: String,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Performs also check for input files
-    let input_files = get_input_files(&cli.input)?;
+    // Get the list of jobs to process based on the input files
+    let jobs = get_input_jobs(&cli.input)?;
 
-    // Perfomrns also check for background colors
+    // Parse and validate the background colors provided by the user
     let background_colors = get_background_colors(&cli.backgrounds)?;
 
     // Create a temporary directory for storing preview images
     let temp_dir = tempfile::tempdir().context("Cannot create temporary directory")?;
 
     // Generate preview images for each input file and background color combination
-    let output_dir = create_previews(
-        &input_files,
-        &background_colors,
-        cli.icon_width,
-        temp_dir.path(),
-    )
-    .and_then(|()| finalize_output(temp_dir.path(), cli.output))?;
+    let output_dir = create_previews(&jobs, &background_colors, cli.icon_width, temp_dir.path())
+        .and_then(|()| finalize_output(temp_dir.path(), cli.output))?;
 
     if let Err(error) = temp_dir.close() {
         eprintln!("⚠ Cannot remove temp directory: {error}");
@@ -87,62 +88,119 @@ fn main() -> Result<()> {
 
     println!(
         "✔ Generated {} preview{} in {}",
-        input_files.len(),
-        if input_files.len() == 1 { "" } else { "s" },
-        output_dir.display()
+        jobs.len(),
+        if jobs.len() == 1 { "" } else { "s" },
+        normalize_display_path(&output_dir).display()
     );
 
     Ok(())
 }
 
-fn get_input_files(inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
+fn get_input_jobs(inputs: &[PathBuf]) -> Result<Vec<PreviewJob>> {
     let mut filestems: HashMap<String, PathBuf> = HashMap::new();
-    let case_mapper = CaseMapper::new();
-    let normalizer = DecomposingNormalizer::new_nfd();
-    let mut add_file = |path: &PathBuf, files: &mut Vec<PathBuf>| -> Result<()> {
+    let mut preview_jobs = Vec::new();
+    let mut add_file = |path: &PathBuf| -> Result<()> {
+        let extension = get_file_extension(path)?;
+        if !is_svg_extension(&extension) {
+            bail!(
+                "Unsupported file type: {}",
+                normalize_display_path(path).display()
+            );
+        }
+
         let filestem = get_filestem(path)?;
-        let decomposed = normalizer.normalize(&filestem);
-        let folded = case_mapper.fold_string(&decomposed);
-        let key = normalizer.normalize(&folded).into_owned();
-        if filestems.contains_key(&key) {
-            eprintln!("⚠ Skipping duplicate filename: {}", get_filename(path)?);
+        let key = filestem.to_ascii_lowercase();
+        if let Some(existing) = filestems.get(&key) {
+            eprintln!(
+                "⚠ Skipping {} (same output name as {})",
+                normalize_display_path(path).display(),
+                normalize_display_path(existing).display()
+            );
             return Ok(());
         }
-        let absolute_path =
-            absolute(path).with_context(|| format!("Cannot resolve path: {}", path.display()))?;
+        let absolute_path = absolute(path).with_context(|| {
+            format!(
+                "Cannot resolve path: {}",
+                normalize_display_path(path).display()
+            )
+        })?;
         filestems.insert(key, path.clone());
-        files.push(absolute_path);
+        preview_jobs.push(PreviewJob {
+            svg: absolute_path,
+            png_name: format!("{filestem}.png"),
+        });
         Ok(())
     };
 
-    let unique_files = inputs.iter().try_fold(Vec::new(), |mut files, input| {
-        match input.extension().and_then(|ext| ext.to_str()) {
-            Some(ext) if ext.eq_ignore_ascii_case("svg") => add_file(input, &mut files)?,
-            Some(ext) if ext.eq_ignore_ascii_case("txt") => {
+    for input in inputs {
+        let extension = get_file_extension(input)?;
+        match extension.as_str() {
+            ext if is_svg_extension(ext) => add_file(input)?,
+            ext if ext.eq_ignore_ascii_case("txt") => {
                 let base_dir = input.parent().unwrap_or_else(|| Path::new("."));
-                let contents = fs::read_to_string(input).map_err(|error| {
-                    let message = match error.kind() {
-                        io::ErrorKind::NotFound => "TXT file does not exist",
-                        io::ErrorKind::PermissionDenied => "Permission denied reading TXT file",
-                        io::ErrorKind::IsADirectory => "TXT path points to a directory",
-                        _ => "Cannot read TXT file",
-                    };
-                    anyhow::Error::new(error).context(format!("{message}: {}", input.display()))
+                let contents = fs::read_to_string(input).with_context(|| {
+                    format!(
+                        "Cannot read TXT file: {}",
+                        normalize_display_path(input).display()
+                    )
                 })?;
 
                 contents
+                    .trim_start_matches('\u{feff}')
                     .lines()
                     .map(str::trim)
                     .filter(|line| !line.is_empty())
-                    .try_for_each(|line| add_file(&base_dir.join(line), &mut files))?;
+                    .try_for_each(|line| add_file(&base_dir.join(line)))?;
             }
-            _ => bail!("Unsupported file type: {}", input.display()),
+            _ => bail!(
+                "Unsupported file type: {}",
+                normalize_display_path(input).display()
+            ),
         }
+    }
 
-        Ok(files)
-    })?;
+    Ok(preview_jobs)
+}
 
-    Ok(unique_files)
+fn get_filestem(path: &Path) -> Result<String> {
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .with_context(|| {
+            format!(
+                "Path has no filename: {}",
+                normalize_display_path(path).display()
+            )
+        })
+}
+
+fn get_filename(path: &Path) -> Result<String> {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .with_context(|| {
+            format!(
+                "Path has no filename: {}",
+                normalize_display_path(path).display()
+            )
+        })
+}
+
+fn get_file_extension(path: &Path) -> Result<String> {
+    path.extension()
+        .map(|ext| ext.to_string_lossy().into_owned())
+        .with_context(|| {
+            format!(
+                "Path has no extension: {}",
+                normalize_display_path(path).display()
+            )
+        })
+}
+
+fn normalize_display_path(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
+fn is_svg_extension(extension: &str) -> bool {
+    extension.eq_ignore_ascii_case("svg") || extension.eq_ignore_ascii_case("svgz")
 }
 
 fn get_background_colors(backgrounds: &[String]) -> Result<Vec<PremultipliedColorU8>> {
@@ -166,7 +224,7 @@ fn get_background_colors(backgrounds: &[String]) -> Result<Vec<PremultipliedColo
                 rgb.try_into()
                     .map_err(|_| anyhow::anyhow!("Expected exactly three RGB values"))
             })
-            .context(format!("Invalid RGB format: {background}"))?;
+            .with_context(|| format!("Invalid RGB format: {background}"))?;
 
         let color = ColorU8::from_rgba(rgb[0], rgb[1], rgb[2], ALPHA_OPAQUE).premultiply();
 
@@ -187,7 +245,7 @@ fn get_background_colors(backgrounds: &[String]) -> Result<Vec<PremultipliedColo
 }
 
 fn create_previews(
-    input_files: &[PathBuf],
+    jobs: &[PreviewJob],
     background_colors: &[PremultipliedColorU8],
     icon_width: u32,
     temp_dir: &Path,
@@ -195,28 +253,27 @@ fn create_previews(
     let mut opt = usvg::Options::default();
     opt.fontdb_mut().load_system_fonts();
 
-    for input_file in input_files {
-        let filestem = get_filestem(input_file)?;
-
+    for job in jobs {
         // Loading and parsing the SVG file
-        let svg_data = fs::read(input_file).map_err(|error| {
-            let message = match error.kind() {
-                io::ErrorKind::NotFound => "SVG file does not exist",
-                io::ErrorKind::PermissionDenied => "Permission denied reading SVG file",
-                io::ErrorKind::IsADirectory => "SVG path points to a directory",
-                _ => "Cannot read SVG file",
-            };
-            anyhow::Error::new(error).context(format!("{message}: {}", input_file.display()))
+        let svg_data = fs::read(&job.svg).with_context(|| {
+            format!(
+                "Cannot read SVG file: {}",
+                normalize_display_path(&job.svg).display()
+            )
         })?;
 
-        opt.resources_dir = input_file.parent().map(Path::to_path_buf);
+        opt.resources_dir = job.svg.parent().map(Path::to_path_buf);
 
-        let tree = usvg::Tree::from_data(&svg_data, &opt)
-            .context(format!("Cannot parse SVG file: {}", input_file.display()))?;
+        let tree = usvg::Tree::from_data(&svg_data, &opt).with_context(|| {
+            format!(
+                "Cannot parse SVG file: {}",
+                normalize_display_path(&job.svg).display()
+            )
+        })?;
 
         // Calculate scaling factors
         // Icon widths are far below 2^23, so the conversion to f32 is lossless
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::cast_precision_loss)]
         let width = icon_width as f32;
 
         // Create Pixmap with target size
@@ -229,7 +286,7 @@ fn create_previews(
 
         let img_data = render_with_backgrounds(&pixmap, background_colors, icon_width);
 
-        let temp_path = temp_dir.join(format!("{filestem}.png"));
+        let temp_path = temp_dir.join(&job.png_name);
 
         // Save the PNG image to the temp directory
         img_data.save(temp_path).context("Cannot save image")?;
@@ -244,18 +301,6 @@ fn fit_transform(svg_width: f32, svg_height: f32, canvas_width: f32) -> Transfor
     let offset_y = (canvas_width - svg_height * scale) / 2.0;
 
     Transform::from_scale(scale, scale).post_translate(offset_x, offset_y)
-}
-
-fn get_filestem(path: &Path) -> Result<String> {
-    path.file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .context(format!("Path has no filename: {}", path.display()))
-}
-
-fn get_filename(path: &Path) -> Result<String> {
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .context(format!("Path has no filename: {}", path.display()))
 }
 
 fn render_with_backgrounds(
@@ -281,11 +326,12 @@ fn render_with_backgrounds(
     combined
 }
 
+// TECH DEBT: https://github.com/robertohuertasm/svg-icon-check/pull/3#discussion_r4659304463
 fn blend(pixel: PremultipliedColorU8, background: PremultipliedColorU8) -> Rgb<u8> {
     let a = f32::from(pixel.alpha()) / f32::from(ALPHA_OPAQUE);
     // With a in 0..=1, the result is always within 0..=255, so the cast cannot
     // truncate or lose the sign
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let blend_colors = |c: u8, bg: u8| (f32::from(c) + (f32::from(bg) * (1.0 - a))) as u8;
     Rgb([
         blend_colors(pixel.red(), background.red()),
@@ -302,55 +348,143 @@ fn finalize_output(temp_dir: &Path, output: PathBuf) -> Result<PathBuf> {
     };
 
     // Create the output directory
-    fs::create_dir_all(&output_abs)
-        .with_context(|| format!("Cannot create output directory: {}", output_abs.display()))?;
+    fs::create_dir_all(&output_abs).with_context(|| {
+        format!(
+            "Cannot create output directory: {}",
+            normalize_display_path(&output_abs).display()
+        )
+    })?;
 
-    // Copy files from temp to output
-    let entries = fs::read_dir(temp_dir).context("Cannot read temp directory")?;
-    for entry in entries {
-        let entry = entry?;
-        let target = output_abs.join(entry.file_name());
-
-        fs::copy(entry.path(), &target).with_context(|| {
-            format!("Cannot copy file: {}", entry.file_name().to_string_lossy())
-        })?;
+    let entries = fs::read_dir(temp_dir)
+        .context("Cannot read temp directory")?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<io::Result<Vec<_>>>()
+        .context("Cannot read temp directory entry")?;
+    let backups = tempfile::tempdir().context("Cannot create backup directory")?;
+    if let Err((error, rollback_failed)) = copy_previews(&entries, &output_abs, backups.path()) {
+        if rollback_failed {
+            let backup_path = backups.keep();
+            return Err(error.context(format!(
+                "Rollback failed; backups retained in {}",
+                normalize_display_path(&backup_path).display()
+            )));
+        }
+        return Err(error);
     }
 
     Ok(output_abs)
 }
 
-#[cfg(test)]
-mod tests {
-    use tiny_skia::Point;
+fn copy_previews(
+    entries: &[PathBuf],
+    output: &Path,
+    backup_dir: &Path,
+) -> std::result::Result<(), (anyhow::Error, bool)> {
+    let mut copied: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
+    let result = (|| -> Result<()> {
+        for entry in entries {
+            let filename = get_filename(entry)?;
+            let target = output.join(&filename);
+            let resolved = resolve_copy_target(&target)?;
+            let backup = match fs::metadata(&resolved) {
+                Ok(metadata) if metadata.is_file() => {
+                    let backup = backup_dir.join(copied.len().to_string());
+                    fs::copy(&resolved, &backup).with_context(|| {
+                        format!(
+                            "Cannot backup output file: {}",
+                            normalize_display_path(&target).display()
+                        )
+                    })?;
+                    Some(backup)
+                }
+                Ok(metadata) if metadata.is_dir() => {
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(&target)
+                        .with_context(|| format!("Cannot copy file: {filename}"))?;
+                    bail!("Cannot copy file: {filename}: destination is a directory");
+                }
+                Ok(_) => bail!("Cannot copy file: {filename}: destination is not a regular file"),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "Cannot inspect output file: {}",
+                            normalize_display_path(&target).display()
+                        )
+                    });
+                }
+            };
 
-    use super::fit_transform;
+            // Record the destination before copying: a failed copy can leave a partial file.
+            copied.push((resolved, backup));
 
-    #[test]
-    fn fit_transform_centers_landscape_and_portrait_svgs() {
-        let cases = [
-            (
-                400.0,
-                200.0,
-                Point::from_xy(0.0, 50.0),
-                Point::from_xy(200.0, 150.0),
-            ),
-            (
-                200.0,
-                400.0,
-                Point::from_xy(50.0, 0.0),
-                Point::from_xy(150.0, 200.0),
-            ),
-        ];
+            fs::copy(entry, &target).with_context(|| format!("Cannot copy file: {filename}"))?;
+        }
+        Ok(())
+    })();
 
-        for (svg_width, svg_height, expected_top_left, expected_bottom_right) in cases {
-            let transform = fit_transform(svg_width, svg_height, 200.0);
-            let mut top_left = Point::from_xy(0.0, 0.0);
-            let mut bottom_right = Point::from_xy(svg_width, svg_height);
-            transform.map_point(&mut top_left);
-            transform.map_point(&mut bottom_right);
+    if let Err(error) = result {
+        let mut rollback_errors = Vec::new();
+        for (target, backup) in copied.into_iter().rev() {
+            let result = match &backup {
+                Some(backup) => fs::copy(backup, &target).map(|_| ()),
+                None => match fs::remove_file(&target) {
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                    result => result,
+                },
+            };
+            if let Err(rollback_error) = result {
+                let backup_info = backup.map_or_else(String::new, |path| {
+                    format!(" (backup: {})", normalize_display_path(&path).display())
+                });
+                rollback_errors.push(format!(
+                    "{}: {rollback_error}{backup_info}",
+                    normalize_display_path(&target).display()
+                ));
+            }
+        }
+        if rollback_errors.is_empty() {
+            return Err((error, false));
+        }
+        return Err((
+            error.context(format!("Rollback errors: {}", rollback_errors.join("; "))),
+            true,
+        ));
+    }
+    Ok(())
+}
 
-            assert_eq!(top_left, expected_top_left);
-            assert_eq!(bottom_right, expected_bottom_right);
+fn resolve_copy_target(target: &Path) -> Result<PathBuf> {
+    let mut resolved = target.to_path_buf();
+    for _ in 0..40 {
+        match fs::symlink_metadata(&resolved) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let link = fs::read_link(&resolved).with_context(|| {
+                    format!(
+                        "Cannot read symlink: {}",
+                        normalize_display_path(&resolved).display()
+                    )
+                })?;
+                resolved = resolved
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(link);
+            }
+            Ok(_) => return Ok(resolved),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(resolved),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Cannot inspect output file: {}",
+                        normalize_display_path(&resolved).display()
+                    )
+                });
+            }
         }
     }
+    bail!(
+        "Too many symlinks resolving output file: {}",
+        normalize_display_path(target).display()
+    )
 }

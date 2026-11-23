@@ -17,8 +17,8 @@ svg-icon-check icon1.svg icon2.svg icon3.svg
 # Using a text file with icon paths (one per line)
 svg-icon-check paths.txt
 
-# File extensions can use any capitalization
-svg-icon-check icon.SVG paths.TXT
+# SVG and text file extensions are case-insensitive; compressed SVGZ is supported
+svg-icon-check icon.SVG icon.svgz paths.TXT
 
 # Custom output directory
 svg-icon-check icon.svg -o ./output_icons
@@ -39,7 +39,7 @@ svg-icon-check icon.svg -o ./results -w 64 -b 30,30,30 40,42,54 253,246,227
 | --------------- | ----- | --------------- | ---------- | ------------- | --------------------------------------------------------------------- |
 | `input`         | -     | -               | Path(s)    | -             | One or more SVG paths, or .txt files containing one SVG path per line |
 | `output`        | `-o`  | `--output`      | Path       | `output`      | Path to the output directory                                          |
-| `icon_width`    | `-w`  | `--icon-width`  | Number     | `200`         | Width of each icon section in pixels (1-200)                          |
+| `icon_width`    | `-w`  | `--icon-width`  | Number     | `200`         | Width of each icon section in pixels (1-256)                          |
 | `backgrounds`   | `-b`  | `--backgrounds` | RGB values | black & white | Up to 16 additional RGB colors (e.g., `255,0,0`)                      |
 
 ## Usage
@@ -56,15 +56,23 @@ svg-icon-check <INPUT>... [OPTIONS]
 - One or more .txt files containing SVG paths (one per line)
 - Mix of both SVG and .txt files
 
-SVG and TXT file extensions are case-insensitive.
+SVG (`.svg` and compressed `.svgz`) and TXT file extensions are case-insensitive.
+Paths listed in TXT files must also have an `.svg` or `.svgz` extension.
 
-Output filenames are compared using Unicode case folding and canonical
-normalization. If inputs across arguments and text files produce the same name,
+### Path Resolution
+
+Input paths given directly on the command line are resolved relative to the
+current working directory. Paths listed in a TXT file are resolved relative to
+that TXT file's directory. A relative output path passed with `-o` is resolved
+relative to the current working directory.
+
+Output filenames are compared case-insensitively for ASCII letters. If inputs
+across arguments and text files produce the same name,
 the first is used with its original spelling and later duplicates are skipped
 with a warning.
 
-Place `-b`/`--backgrounds` after all input arguments. The option consumes
-space-separated values until the command ends.
+Place `-b`/`--backgrounds` after all input arguments. It reads values until the
+next flag, so any input placed after it is taken as a color.
 
 The tool generates PNG files with your icons rendered on the default backgrounds.
 
@@ -120,6 +128,11 @@ run, including previews from earlier runs, are left in place. Use a fresh output
 directory when you need to distinguish the current run's previews from older
 ones.
 
+If copying a preview fails, the tool attempts to remove newly copied previews
+and restore overwritten files. Rollback failures are reported, and backups are
+retained for recovery. A crash or forced termination can still leave partial
+output.
+
 ## Icon Width (`-w` option)
 
 Customize the width of the output icon using the `-w` option:
@@ -128,7 +141,7 @@ Customize the width of the output icon using the `-w` option:
 svg-icon-check icon.svg -w 128
 ```
 
-The width value must be between 1 and 200 and sets the size of each icon section
+The width value must be between 1 and 256 and sets the size of each icon section
 in pixels. By default,
 each section is **200 pixels wide** and **200 pixels tall**. The SVG is scaled
 to fit within that square while preserving its aspect ratio.

@@ -1,5 +1,3 @@
 ./icons/default_file.svg
 ./icons/default_folder.svg
 ./icons/file_type_access.svg
-./icons/default_file.SVG
-./icons/Default_file.svg
