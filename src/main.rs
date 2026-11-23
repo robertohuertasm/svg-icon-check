@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
     env, fs, io,
-    path::{absolute, Path, PathBuf},
+    path::{Path, PathBuf, absolute},
 };
 
-use anyhow::{bail, Context, Result};
-use clap::{crate_authors, value_parser, Parser};
+use anyhow::{Context, Result, bail};
+use clap::{Parser, crate_authors, value_parser};
 use image::{ImageBuffer, Rgb};
 use resvg::{self, usvg};
 use tiny_skia::{ColorU8, Pixmap, PremultipliedColorU8};
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Get the list of jobs to process based on the input files
-    let jobs = get_input_jobs(&cli.input)?;
+    let preview_jobs = get_preview_jobs(&cli.input)?;
 
     // Parse and validate the background colors provided by the user
     let background_colors = get_background_colors(&cli.backgrounds)?;
@@ -79,8 +79,13 @@ fn main() -> Result<()> {
     let temp_dir = tempfile::tempdir().context("Cannot create temporary directory")?;
 
     // Generate preview images for each input file and background color combination
-    let output_dir = create_previews(&jobs, &background_colors, cli.icon_width, temp_dir.path())
-        .and_then(|()| finalize_output(temp_dir.path(), cli.output))?;
+    let output_dir = create_previews(
+        &preview_jobs,
+        &background_colors,
+        cli.icon_width,
+        temp_dir.path(),
+    )
+    .and_then(|()| finalize_output(temp_dir.path(), cli.output))?;
 
     if let Err(error) = temp_dir.close() {
         eprintln!("⚠ Cannot remove temp directory: {error}");
@@ -88,15 +93,15 @@ fn main() -> Result<()> {
 
     println!(
         "✔ Generated {} preview{} in {}",
-        jobs.len(),
-        if jobs.len() == 1 { "" } else { "s" },
+        preview_jobs.len(),
+        if preview_jobs.len() == 1 { "" } else { "s" },
         normalize_display_path(&output_dir).display()
     );
 
     Ok(())
 }
 
-fn get_input_jobs(inputs: &[PathBuf]) -> Result<Vec<PreviewJob>> {
+fn get_preview_jobs(inputs: &[PathBuf]) -> Result<Vec<PreviewJob>> {
     let mut filestems: HashMap<String, PathBuf> = HashMap::new();
     let mut preview_jobs = Vec::new();
     let mut add_file = |path: &PathBuf| -> Result<()> {
@@ -245,7 +250,7 @@ fn get_background_colors(backgrounds: &[String]) -> Result<Vec<PremultipliedColo
 }
 
 fn create_previews(
-    jobs: &[PreviewJob],
+    preview_jobs: &[PreviewJob],
     background_colors: &[PremultipliedColorU8],
     icon_width: u32,
     temp_dir: &Path,
@@ -253,21 +258,21 @@ fn create_previews(
     let mut opt = usvg::Options::default();
     opt.fontdb_mut().load_system_fonts();
 
-    for job in jobs {
+    for preview_job in preview_jobs {
         // Loading and parsing the SVG file
-        let svg_data = fs::read(&job.svg).with_context(|| {
+        let svg_data = fs::read(&preview_job.svg).with_context(|| {
             format!(
                 "Cannot read SVG file: {}",
-                normalize_display_path(&job.svg).display()
+                normalize_display_path(&preview_job.svg).display()
             )
         })?;
 
-        opt.resources_dir = job.svg.parent().map(Path::to_path_buf);
+        opt.resources_dir = preview_job.svg.parent().map(Path::to_path_buf);
 
         let tree = usvg::Tree::from_data(&svg_data, &opt).with_context(|| {
             format!(
                 "Cannot parse SVG file: {}",
-                normalize_display_path(&job.svg).display()
+                normalize_display_path(&preview_job.svg).display()
             )
         })?;
 
@@ -286,7 +291,7 @@ fn create_previews(
 
         let img_data = render_with_backgrounds(&pixmap, background_colors, icon_width);
 
-        let temp_path = temp_dir.join(&job.png_name);
+        let temp_path = temp_dir.join(&preview_job.png_name);
 
         // Save the PNG image to the temp directory
         img_data.save(temp_path).context("Cannot save image")?;
