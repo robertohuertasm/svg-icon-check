@@ -1,0 +1,13 @@
+# Rust edition used by the project
+edition = "2024"
+
+# Line width and indentation
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# Use consistent line endings across platforms
+newline_style = "Unix"
+
+# Use rustfmt's default formatting heuristics
+use_small_heuristics = "Default"
