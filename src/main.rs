@@ -8,9 +8,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, crate_authors, value_parser};
 use image::{ImageBuffer, Rgb};
 use resvg::usvg::{Options, Transform, Tree};
-use tiny_skia::{ColorU8, Pixmap, PremultipliedColorU8};
-
-const ALPHA_OPAQUE: u8 = 255;
+use tiny_skia::{ALPHA_U8_OPAQUE, ColorU8, Pixmap, PremultipliedColorU8};
 
 #[derive(Parser)]
 #[command(
@@ -213,8 +211,8 @@ fn get_background_colors(backgrounds: &[String]) -> Result<Vec<PremultipliedColo
     }
 
     let default_colors = [
-        ColorU8::from_rgba(0, 0, 0, ALPHA_OPAQUE).premultiply(),
-        ColorU8::from_rgba(255, 255, 255, ALPHA_OPAQUE).premultiply(),
+        ColorU8::from_rgba(0, 0, 0, ALPHA_U8_OPAQUE).premultiply(),
+        ColorU8::from_rgba(255, 255, 255, ALPHA_U8_OPAQUE).premultiply(),
     ];
     let mut background_colors = default_colors.to_vec();
 
@@ -230,7 +228,7 @@ fn get_background_colors(backgrounds: &[String]) -> Result<Vec<PremultipliedColo
             })
             .with_context(|| format!("Invalid RGB format: {background}"))?;
 
-        let color = ColorU8::from_rgba(rgb[0], rgb[1], rgb[2], ALPHA_OPAQUE).premultiply();
+        let color = ColorU8::from_rgba(rgb[0], rgb[1], rgb[2], ALPHA_U8_OPAQUE).premultiply();
 
         if default_colors.contains(&color) {
             eprintln!("⚠ Skipping already included by default background color {background}");
@@ -332,7 +330,7 @@ fn render_with_backgrounds(
 
 // TECH DEBT: https://github.com/robertohuertasm/svg-icon-check/pull/3#discussion_r4659304463
 fn blend(pixel: PremultipliedColorU8, background: PremultipliedColorU8) -> Rgb<u8> {
-    let a = f32::from(pixel.alpha()) / f32::from(ALPHA_OPAQUE);
+    let a = f32::from(pixel.alpha()) / f32::from(ALPHA_U8_OPAQUE);
     // With a in 0..=1, the result is always within 0..=255, so the cast cannot
     // truncate or lose the sign
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
