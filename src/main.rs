@@ -7,9 +7,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use clap::{Parser, crate_authors, value_parser};
 use image::{ImageBuffer, Rgb};
-use resvg::{self, usvg};
+use resvg::usvg::{Options, Transform, Tree};
 use tiny_skia::{ColorU8, Pixmap, PremultipliedColorU8};
-use usvg::Transform;
 
 const ALPHA_OPAQUE: u8 = 255;
 
@@ -255,7 +254,7 @@ fn create_previews(
     icon_width: u32,
     temp_dir: &Path,
 ) -> Result<()> {
-    let mut opt = usvg::Options::default();
+    let mut opt = Options::default();
     opt.fontdb_mut().load_system_fonts();
 
     for preview_job in preview_jobs {
@@ -269,7 +268,7 @@ fn create_previews(
 
         opt.resources_dir = preview_job.svg.parent().map(Path::to_path_buf);
 
-        let tree = usvg::Tree::from_data(&svg_data, &opt).with_context(|| {
+        let tree = Tree::from_data(&svg_data, &opt).with_context(|| {
             format!(
                 "Cannot parse SVG file: {}",
                 normalize_display_path(&preview_job.svg).display()
