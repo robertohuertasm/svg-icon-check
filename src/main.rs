@@ -279,14 +279,15 @@ fn create_previews(
         let width = icon_width as f32;
 
         // Create Pixmap with target size
-        let mut pixmap = Pixmap::new(icon_width, icon_width).expect("Invalid icon width");
+        let mut pixmap =
+            Pixmap::new(icon_width, icon_width).context("Cannot create preview pixmap")?;
 
         let transform = fit_transform(tree.size().width(), tree.size().height(), width);
 
         // Render SVG with scaling
         resvg::render(&tree, transform, &mut pixmap.as_mut());
 
-        let img_data = render_with_backgrounds(&pixmap, background_colors, icon_width);
+        let img_data = render_with_backgrounds(&pixmap, background_colors, icon_width)?;
 
         let temp_path = temp_dir.join(&preview_job.png_name);
 
@@ -309,9 +310,13 @@ fn render_with_backgrounds(
     pixmap: &Pixmap,
     background_colors: &[PremultipliedColorU8],
     icon_width: u32,
-) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
-    let color_count = u32::try_from(background_colors.len()).expect("Too many background colors");
-    let mut combined = ImageBuffer::<Rgb<u8>, _>::new(icon_width * color_count, icon_width);
+) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>> {
+    let color_count =
+        u32::try_from(background_colors.len()).context("Too many background colors")?;
+    let combined_width = icon_width
+        .checked_mul(color_count)
+        .context("Combined preview width is too large")?;
+    let mut combined = ImageBuffer::<Rgb<u8>, _>::new(combined_width, icon_width);
 
     for (pixel_idx, pixel) in (0u32..).zip(pixmap.pixels()) {
         let x_axis = pixel_idx % icon_width;
@@ -325,7 +330,7 @@ fn render_with_backgrounds(
         }
     }
 
-    combined
+    Ok(combined)
 }
 
 // TECH DEBT: https://github.com/robertohuertasm/svg-icon-check/pull/3#discussion_r4659304463
