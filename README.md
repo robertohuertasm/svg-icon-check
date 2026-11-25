@@ -66,7 +66,7 @@ current working directory. Paths listed in a TXT file are resolved relative to
 that TXT file's directory. A relative output path passed with `-o` is resolved
 relative to the current working directory.
 
-Output filenames are compared case-insensitively for ASCII letters. If inputs
+Output filenames are compared case-insensitively. If inputs
 across arguments and text files produce the same name,
 the first is used with its original spelling and later duplicates are skipped
 with a warning.
