@@ -111,7 +111,7 @@ fn get_preview_jobs(inputs: &[PathBuf]) -> Result<Vec<PreviewJob>> {
         }
 
         let filestem = get_filestem(path)?;
-        let key = filestem.to_ascii_lowercase();
+        let key = filestem.to_lowercase();
         if let Some(existing) = filestems.get(&key) {
             eprintln!(
                 "⚠ Skipping {} (same output name as {})",
