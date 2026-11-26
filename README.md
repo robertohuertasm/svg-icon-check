@@ -27,10 +27,10 @@ svg-icon-check icon.svg -o ./output_icons
 svg-icon-check icon.svg -w 128
 
 # Multiple background colors
-svg-icon-check icon.svg -b 30,30,30 253,246,227
+svg-icon-check icon.svg -b 30,30,30 -b 253,246,227
 
 # Combine all options
-svg-icon-check icon.svg -o ./results -w 64 -b 30,30,30 40,42,54 253,246,227
+svg-icon-check icon.svg -o ./results -w 64 -b 30,30,30 -b 40,42,54 -b 253,246,227
 ```
 
 ## Options
@@ -40,7 +40,7 @@ svg-icon-check icon.svg -o ./results -w 64 -b 30,30,30 40,42,54 253,246,227
 | `input`         | -     | -               | Path(s)    | -             | One or more SVG paths, or .txt files containing one SVG path per line |
 | `output`        | `-o`  | `--output`      | Path       | `output`      | Path to the output directory                                          |
 | `icon_width`    | `-w`  | `--icon-width`  | Number     | `200`         | Width of each icon section in pixels (1-256)                          |
-| `backgrounds`   | `-b`  | `--backgrounds` | RGB values | black & white | Up to 16 additional RGB colors (e.g., `255,0,0`)                      |
+| `background`    | `-b`  | `--background`  | RGB value  | black & white |  Background color in RGB format, up to 16 times (e.g., 255,0,0)       |
 
 ## Usage
 
@@ -71,8 +71,8 @@ across arguments and text files produce the same name,
 the first is used with its original spelling and later duplicates are skipped
 with a warning.
 
-Place `-b`/`--backgrounds` after all input arguments. It reads values until the
-next flag, so any input placed after it is taken as a color.
+Place `-b`/`--background` after all input arguments. Specify one RGB color per
+occurrence and repeat the option for additional colors.
 
 The tool generates PNG files with your icons rendered on the default backgrounds.
 
@@ -89,25 +89,26 @@ default black and white backgrounds.
 
 ## Background Colors
 
-You can add more background colors using the `-b` option:
+Add custom background colors with `-b` or `--background`:
+
+> One comma-separated RGB color per occurrence (components 0-255); repeat up to 16 times
 
 ```bash
-svg-icon-check icon.svg -b 245,245,220
+svg-icon-check icon.svg -b 245,245,220 -b 30,30,30
+svg-icon-check icon.svg --background 245,245,220 --background 30,30,30
 ```
 
 **Example output:**
 
 ![02](docs/example2.png)
 
-You can specify multiple background colors by providing space-separated RGB values.
-You can provide up to 16 additional colors; duplicate values count toward the
-limit even though they are skipped. The default black and white backgrounds do
-not count toward this limit.
+Duplicate values count toward the 16-occurrence limit even though they are
+skipped. The default black and white backgrounds do not count toward this limit.
 The SVG is rendered once, and each background is shown as a separate section
 in the same horizontal output image:
 
 ```bash
-svg-icon-check icon.svg -b 30,30,30 40,42,54 46,52,64 47,54,59 39,40,34 60,63,65 88,110,117 89,91,79 120,120,120 253,246,227 236,239,244 242,242,242 250,250,250
+svg-icon-check icon.svg -b 30,30,30 -b 40,42,54 -b 46,52,64 -b 47,54,59 -b 39,40,34 -b 60,63,65 -b 88,110,117 -b 89,91,79 -b 120,120,120 -b 253,246,227 -b 236,239,244 -b 242,242,242 -b 250,250,250
 ```
 
 **Example output:**
@@ -147,7 +148,7 @@ each section is **200 pixels wide** and **200 pixels tall**. The SVG is scaled
 to fit within that square while preserving its aspect ratio.
 
 ```bash
-svg-icon-check icon.svg -w 64 -b 30,30,30 253,246,227
+svg-icon-check icon.svg -w 64 -b 30,30,30 -b 253,246,227
 ```
 
 For example, the last command produces a PNG with 256 pixels of width:
