@@ -54,7 +54,7 @@ struct Cli {
         num_args = 1,
         value_name = "R,G,B",
         value_parser = parse_rgb,
-        help = "Background color in RGB format, up to 16 times (e.g., 255,0,0)"
+        help = format!("Background color in RGB format, up to {MAX_BACKGROUNDS} times (e.g., 255,0,0)")
     )]
     backgrounds: Vec<Rgb<u8>>,
 }
@@ -521,7 +521,6 @@ fn resolve_copy_target(target: &Path) -> Result<PathBuf> {
                     .unwrap_or_else(|| Path::new("."))
                     .join(link);
             }
-
             Ok(_) => return Ok(resolved),
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(resolved),
             Err(error) => {

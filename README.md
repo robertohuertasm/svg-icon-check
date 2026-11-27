@@ -71,8 +71,8 @@ across arguments and text files produce the same name,
 the first is used with its original spelling and later duplicates are skipped
 with a warning.
 
-Place `-b`/`--background` after all input arguments. Specify one RGB color per
-occurrence and repeat the option for additional colors.
+Specify one RGB color per `-b`/`--background` occurrence and repeat the option
+for additional colors.
 
 The tool generates PNG files with your icons rendered on the default backgrounds.
 
